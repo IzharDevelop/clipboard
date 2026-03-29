@@ -6,77 +6,22 @@ interface ClipboardData {
   [key: string]: string;
 }
 
-// Memoized Clip Item for performance
-const ClipItem = React.memo(({ k, message, onCopy, isCopied }: { k: string, message: string, onCopy: (text: string, id: string) => void, isCopied: boolean }) => (
-  <motion.div 
-    layout
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="group p-5 rounded-3xl border border-black/5 hover:border-black/20 hover:bg-[#fafafa] transition-all space-y-3 relative overflow-hidden"
-  >
-    <div className="flex items-center justify-between relative z-10">
-      <span className="font-mono text-[10px] font-black uppercase tracking-widest bg-black text-white px-2 py-1 rounded-md">{k}</span>
-      <button 
-        aria-label={`Copy ${k}`}
-        onClick={() => onCopy(message, k)}
-        className="p-2 hover:bg-black/5 rounded-xl transition-all active:scale-90"
-      >
-        {isCopied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-black/20" />}
-      </button>
-    </div>
-    <p className="text-sm text-black/60 line-clamp-2 break-all font-medium leading-relaxed">{message}</p>
-  </motion.div>
-));
-
-// Memoized Table Row
-const TableRow = React.memo(({ k, message, onCopy, isCopied }: { k: string, message: string, onCopy: (text: string, id: string) => void, isCopied: boolean }) => (
-  <tr className="hover:bg-[#fcfcfc] transition-colors group">
-    <td className="px-8 py-6 align-top">
-      <span className="font-mono text-sm font-black text-black/80">{k}</span>
-    </td>
-    <td className="px-8 py-6 align-top">
-      <p className="text-sm text-black/60 whitespace-pre-wrap break-all max-w-3xl leading-relaxed font-medium">{message}</p>
-    </td>
-    <td className="px-8 py-6 align-top text-right">
-      <button 
-        aria-label={`Copy ${k}`}
-        onClick={() => onCopy(message, `table-${k}`)}
-        className="p-3 hover:bg-black/5 rounded-2xl transition-all active:scale-90 inline-flex"
-      >
-        {isCopied ? <Check className="w-5 h-5 text-green-600" /> : <Copy className="w-5 h-5 text-black/10 group-hover:text-black/40 transition-colors" />}
-      </button>
-    </td>
-  </tr>
-));
-
 export default function App() {
   const [key, setKey] = useState('');
   const [message, setMessage] = useState('');
   const [searchKey, setSearchKey] = useState('');
-  const [clipboard, setClipboard] = useState<ClipboardData>({});
+  const [searchResult, setSearchResult] = useState<{ key: string, message: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [status, setStatus] = useState<{ type: 'success' | 'error', msg: string } | null>(null);
   const [activeTab, setActiveTab] = useState<'curl' | 'nodejs' | 'python' | 'react'>('curl');
 
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
 
-  const fetchClipboard = useCallback(async () => {
-    try {
-      const res = await fetch('/api/clipboard');
-      if (res.ok) {
-        const data = await res.json();
-        setClipboard(data);
-      }
-    } catch (err) {
-      console.error('Failed to fetch clipboard', err);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchClipboard();
     document.title = "SyncClip | Universal Cloud Clipboard & Sync API";
-  }, [fetchClipboard]);
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,9 +39,9 @@ export default function App() {
         setStatus({ type: 'success', msg: `Successfully synced message with key: ${key}` });
         setKey('');
         setMessage('');
-        fetchClipboard();
       } else {
-        setStatus({ type: 'error', msg: 'Failed to sync message. Please try again.' });
+        const errorData = await res.json().catch(() => ({}));
+        setStatus({ type: 'error', msg: errorData.error || 'Failed to sync message.' });
       }
     } catch (err) {
       setStatus({ type: 'error', msg: 'Network error. Check your connection.' });
@@ -106,18 +51,35 @@ export default function App() {
     }
   };
 
+  const handleSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!searchKey) return;
+
+    setSearchLoading(true);
+    setSearchResult(null);
+    try {
+      const res = await fetch(`/api/clipboard/${encodeURIComponent(searchKey)}`);
+      if (res.ok) {
+        const data = await res.json();
+        setSearchResult(data);
+      } else {
+        setStatus({ type: 'error', msg: 'Key not found in cloud storage.' });
+        setTimeout(() => setStatus(null), 3000);
+      }
+    } catch (err) {
+      setStatus({ type: 'error', msg: 'Search failed. Please try again.' });
+      setTimeout(() => setStatus(null), 3000);
+    } finally {
+      setSearchLoading(false);
+    }
+  };
+
   const copyToClipboard = useCallback((text: string, id: string) => {
+    if (!text) return;
     navigator.clipboard.writeText(text);
     setCopiedKey(id);
     setTimeout(() => setCopiedKey(null), 2000);
   }, []);
-
-  const filteredKeys = useMemo(() => 
-    Object.keys(clipboard).filter(k => 
-      k.toLowerCase().includes(searchKey.toLowerCase()) || 
-      clipboard[k].toLowerCase().includes(searchKey.toLowerCase())
-    ), [clipboard, searchKey]
-  );
 
   const snippets = {
     curl: {
@@ -299,39 +261,64 @@ requests.post('${origin}/api/clipboard',
             className="bg-white p-6 md:p-10 rounded-[40px] border border-black/5 shadow-sm space-y-8"
           >
             <div className="flex items-center justify-between">
-              <h3 className="font-black text-2xl tracking-tight">Cloud Explorer</h3>
+              <h3 className="font-black text-2xl tracking-tight">Cloud Search</h3>
               <div className="p-2 bg-black/5 rounded-full">
                 <Search className="w-5 h-5 text-black/40" />
               </div>
             </div>
-            <div className="relative">
+            <form onSubmit={handleSearch} className="relative">
               <input 
                 type="text" 
-                placeholder="Filter clips..."
+                placeholder="Enter your private key..."
                 value={searchKey}
                 onChange={(e) => setSearchKey(e.target.value)}
-                className="w-full pl-12 pr-5 py-4 rounded-2xl border border-black/5 bg-[#f9f9f9] focus:outline-none focus:border-black/20 transition-all text-sm"
-                aria-label="Filter Clips"
+                className="w-full pl-12 pr-24 py-4 rounded-2xl border border-black/5 bg-[#f9f9f9] focus:outline-none focus:border-black/20 transition-all text-sm font-mono"
+                aria-label="Search Key"
               />
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-black/20" />
-            </div>
+              <button 
+                type="submit"
+                disabled={searchLoading}
+                className="absolute right-2 top-1/2 -translate-y-1/2 bg-black text-white px-4 py-2 rounded-xl text-xs font-bold hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+              >
+                {searchLoading ? '...' : 'Search'}
+              </button>
+            </form>
             
-            <div className="space-y-4 max-h-[400px] md:max-h-[450px] overflow-y-auto pr-3 custom-scrollbar">
-              {filteredKeys.length === 0 ? (
-                <div className="text-center py-20 text-black/20 italic flex flex-col items-center gap-4">
-                  <Info className="w-10 h-10 opacity-20" />
-                  No data found.
+            <div className="space-y-4 min-h-[100px] flex flex-col justify-center">
+              {!searchResult && !searchLoading && (
+                <div className="text-center py-10 text-black/20 italic flex flex-col items-center gap-4">
+                  <Search className="w-10 h-10 opacity-10" />
+                  <p className="text-sm">Enter a key to retrieve your message.</p>
                 </div>
-              ) : (
-                filteredKeys.map(k => (
-                  <ClipItem 
-                    key={k} 
-                    k={k} 
-                    message={clipboard[k]} 
-                    onCopy={copyToClipboard} 
-                    isCopied={copiedKey === k} 
-                  />
-                ))
+              )}
+
+              {searchLoading && (
+                <div className="flex justify-center py-10">
+                  <div className="w-6 h-6 border-2 border-black/10 border-t-black rounded-full animate-spin" />
+                </div>
+              )}
+
+              {searchResult && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="group p-6 rounded-3xl border-2 border-black/5 bg-black/5 space-y-4 relative overflow-hidden"
+                >
+                  <div className="flex items-center justify-between relative z-10">
+                    <span className="font-mono text-[10px] font-black uppercase tracking-widest bg-black text-white px-2 py-1 rounded-md">Result: {searchResult.key}</span>
+                    <button 
+                      aria-label={`Copy result`}
+                      onClick={() => copyToClipboard(searchResult.message, 'search-result')}
+                      className="p-2 bg-white rounded-xl shadow-sm hover:scale-110 transition-all active:scale-90"
+                    >
+                      {copiedKey === 'search-result' ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4 text-black/40" />}
+                    </button>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl border border-black/5">
+                    <p className="text-sm text-black/80 break-all font-medium leading-relaxed whitespace-pre-wrap">{searchResult.message}</p>
+                  </div>
+                </motion.div>
               )}
             </div>
           </motion.div>
@@ -361,45 +348,25 @@ requests.post('${origin}/api/clipboard',
           </div>
         </section>
 
-        {/* Browse Section */}
+        {/* Browse Section - Hidden for Privacy as requested */}
         <section id="browse" className="space-y-10">
           <div className="flex items-end justify-between">
             <div className="space-y-2">
-              <h2 className="text-4xl font-black tracking-tight">Data Manager</h2>
-              <p className="text-black/40 font-medium">View and manage your cloud-synchronized data.</p>
+              <h2 className="text-4xl font-black tracking-tight">Private Access</h2>
+              <p className="text-black/40 font-medium">Your data is only accessible via its unique key.</p>
             </div>
           </div>
 
-          <div className="bg-white rounded-[40px] border border-black/5 overflow-hidden shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[600px]">
-                <thead>
-                  <tr className="bg-[#fafafa] border-b border-black/5">
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-black/30 w-1/4">Key ID</th>
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-black/30">Message Content</th>
-                    <th className="px-8 py-6 text-[10px] font-black uppercase tracking-[0.2em] text-black/30 w-32 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-black/5">
-                  {Object.keys(clipboard).length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="px-8 py-20 text-center text-black/20 italic font-medium">
-                        Cloud storage is empty.
-                      </td>
-                    </tr>
-                  ) : (
-                    Object.keys(clipboard).map(k => (
-                      <TableRow 
-                        key={k} 
-                        k={k} 
-                        message={clipboard[k]} 
-                        onCopy={copyToClipboard} 
-                        isCopied={copiedKey === `table-${k}`} 
-                      />
-                    ))
-                  )}
-                </tbody>
-              </table>
+          <div className="bg-white rounded-[40px] border border-black/5 p-12 text-center space-y-6 shadow-sm">
+            <div className="w-20 h-20 bg-black/5 rounded-full flex items-center justify-center mx-auto">
+              <Terminal className="w-10 h-10 text-black/20" />
+            </div>
+            <div className="max-w-md mx-auto space-y-4">
+              <h3 className="text-2xl font-black">Privacy First</h3>
+              <p className="text-sm text-black/50 leading-relaxed">
+                To protect your privacy, we no longer list all keys publicly. 
+                Use the <strong>Cloud Search</strong> tool above to retrieve your specific message using your private key.
+              </p>
             </div>
           </div>
         </section>

@@ -1,0 +1,21 @@
+{
+  "name": "SyncClip | Universal Cloud Clipboard",
+  "short_name": "SyncClip",
+  "description": "Sync text, code, and notes across devices instantly with custom keys.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#000000",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/syncclip/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/syncclip/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
